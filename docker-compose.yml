@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vkai_insurance_provider_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: vkai_insurance_provider_dev
+    ports:
+      # Host 5433 -> container 5432, avoiding a clash with the client-api Postgres.
+      - "5433:5432"
+    volumes:
+      - vkai_insurance_provider_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vkai_insurance_provider_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: vkai_insurance_provider_api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      VKAI_INSURANCE_PROVIDER_API_PORT: 4100
+      # Inside the compose network the DB host is the service name on port 5432.
+      VKAI_INSURANCE_PROVIDER_API_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/vkai_insurance_provider_dev
+      VKAI_INSURANCE_PROVIDER_API_ENTRA_TENANT_ID: ${VKAI_INSURANCE_PROVIDER_API_ENTRA_TENANT_ID:-}
+      VKAI_INSURANCE_PROVIDER_API_ENTRA_CLIENT_ID: ${VKAI_INSURANCE_PROVIDER_API_ENTRA_CLIENT_ID:-}
+      VKAI_INSURANCE_PROVIDER_API_ENTRA_REVIEWER_GROUP_ID: ${VKAI_INSURANCE_PROVIDER_API_ENTRA_REVIEWER_GROUP_ID:-}
+      VKAI_INSURANCE_PROVIDER_API_ENTRA_APPROVER_GROUP_ID: ${VKAI_INSURANCE_PROVIDER_API_ENTRA_APPROVER_GROUP_ID:-}
+      VKAI_INSURANCE_PROVIDER_API_SYNC_KEY: ${VKAI_INSURANCE_PROVIDER_API_SYNC_KEY:-}
+      # From inside the api container, the client-api on the host is reachable via
+      # host.docker.internal. Override in .env if the client runs elsewhere.
+      VKAI_INSURANCE_CLIENT_API_BASE_URL: ${VKAI_INSURANCE_CLIENT_API_BASE_URL:-http://host.docker.internal:4000}
+      VKAI_INSURANCE_PROVIDER_API_ALLOWED_ORIGIN: ${VKAI_INSURANCE_PROVIDER_API_ALLOWED_ORIGIN:-http://localhost:5174}
+      VKAI_INSURANCE_PROVIDER_API_LOG_LEVEL: ${VKAI_INSURANCE_PROVIDER_API_LOG_LEVEL:-info}
+    ports:
+      - "4100:4100"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  vkai_insurance_provider_pgdata:
