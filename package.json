@@ -1,0 +1,34 @@
+{
+  "name": "vkai-insurance-provider-api",
+  "version": "1.0.0",
+  "description": "VK AI Labs — Node.js provider/ops API for the Insurance module (policy catalog, enrollments, premiums, claims, cross-cloud sync).",
+  "license": "MIT",
+  "author": "vkailabs",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.1.0",
+    "node-cron": "^3.0.3",
+    "pino": "^9.5.0",
+    "uuid": "^11.0.3"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  }
+}
