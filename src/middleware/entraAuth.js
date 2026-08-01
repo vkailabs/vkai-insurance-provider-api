@@ -50,7 +50,10 @@ function verifyToken(token) {
       getSigningKey,
       {
         algorithms: ['RS256'],
-        audience: env.entra.clientId,
+        // Accept both audience forms: the bare client id (v2 tokens for the app
+        // itself) and the api://<client-id> URI form (tokens issued for the
+        // exposed "access_as_user" scope). jsonwebtoken passes if aud matches any.
+        audience: [env.entra.clientId, `api://${env.entra.clientId}`],
         issuer: `https://login.microsoftonline.com/${env.entra.tenantId}/v2.0`,
       },
       (err, decoded) => {
