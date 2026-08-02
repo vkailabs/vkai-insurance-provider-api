@@ -3,11 +3,19 @@
 VK AI Labs — Node.js **provider/ops API** for the Insurance module (policy catalog,
 enrollments, premiums, claims). This is the provider side of the platform and is one of four
 independent repos in the ecosystem. It serves the React provider portal
-(`vkai-insurance-provider`) and, in a later phase, will run on an Azure VM.
+(`vkai-insurance-provider`) and is deployed live on an Azure VM (Docker + Nginx +
+Let's Encrypt SSL).
 
 The provider side (Azure) and the client side (GCP, `vkai-insurance-client-api`) are fully
 independent — **no shared database**. They exchange data only via HTTP sync calls secured by
 a shared secret.
+
+## Documentation
+
+- [BUSINESS_REQUIREMENTS.md](BUSINESS_REQUIREMENTS.md) — domain scope, data ownership, the
+  cross-cloud sync model, and the two endpoint categories.
+- [CLAUDE.md](CLAUDE.md) — project context and critical gotchas for future work (Entra ID
+  audience/token-version, Prisma-on-Alpine, env-var placement, git workflow).
 
 ---
 
@@ -100,12 +108,13 @@ Copy `.env.example` to `.env`. All values use the `VKAI_INSURANCE_PROVIDER_API_`
 | `VKAI_INSURANCE_PROVIDER_API_ALLOWED_ORIGIN` | CORS origin (default `http://localhost:5174`) |
 | `VKAI_INSURANCE_PROVIDER_API_LOG_LEVEL` | pino log level (default `info`) |
 
-> ⚠️ **Entra ID login will not work until real values are supplied.** No Entra ID app
-> registration exists yet — that's a manual Azure Portal step (a later phase), not code.
-> The verification logic is built correctly against the Azure AD v2 token contract, but
-> `VKAI_INSURANCE_PROVIDER_API_ENTRA_TENANT_ID` and `..._ENTRA_CLIENT_ID` must be set to
-> real values before any ops-authenticated route will accept a token. This mirrors how the
-> sibling client-api needed real Firebase Admin credentials before its auth worked.
+> ⚠️ **Entra ID login requires the real registration values to be configured.** The
+> **"VKAI Insurance Provider Portal"** app registration exists in Entra ID, with its
+> redirect URIs, the Reviewer/Approver security groups, and the exposed `access_as_user`
+> API scope all set up. The verification logic is built against the Azure AD v2 token
+> contract; each environment must set `VKAI_INSURANCE_PROVIDER_API_ENTRA_TENANT_ID`,
+> `..._ENTRA_CLIENT_ID`, and the Reviewer/Approver group ids from that registration before
+> its ops-authenticated routes will accept a token.
 >
 > The cross-cloud sync routes and the `/health` endpoint do **not** depend on Entra ID and
 > are fully testable now (set `VKAI_INSURANCE_PROVIDER_API_SYNC_KEY`).
@@ -204,8 +213,11 @@ echoed back on the response and propagated on outbound sync calls.
 
 ---
 
-## Out of scope for this phase
+## Deployment
 
-- Nginx / SSL / Azure deployment config
+The API is deployed live on an **Azure VM**, running under Docker with **Nginx** as a
+reverse proxy and **Let's Encrypt** for SSL.
+
+## Out of scope for this repo
+
 - The provider frontend (`vkai-insurance-provider`)
-- Creating the actual Entra ID app registration (manual Azure Portal step)
