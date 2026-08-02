@@ -4,6 +4,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const entraAuth = require('../middleware/entraAuth');
 const requireRole = require('../middleware/requireRole');
+const { makeUniquePolicyKey } = require('../lib/policyKey');
 
 const router = express.Router();
 
@@ -33,17 +34,33 @@ router.post('/', requireRole('Approver'), async (req, res, next) => {
       });
     }
 
-    const created = await prisma.policyCatalog.create({
-      data: {
-        name,
-        description: description ?? null,
-        premiumAmount,
-        coverageAmount,
-        isActive: isActive ?? true,
-      },
-    });
+    // Derive a unique catalog key from the name and persist it. Retry on the
+    // rare race where a concurrent create grabs the same key between our
+    // uniqueness check and the insert (unique violation -> re-derive).
+    let created;
+    for (let attempt = 0; ; attempt += 1) {
+      const key = await makeUniquePolicyKey(prisma, name);
+      try {
+        created = await prisma.policyCatalog.create({
+          data: {
+            key,
+            name,
+            description: description ?? null,
+            premiumAmount,
+            coverageAmount,
+            isActive: isActive ?? true,
+          },
+        });
+        break;
+      } catch (e) {
+        if (e.code === 'P2002' && e.meta && e.meta.target && e.meta.target.includes('key') && attempt < 5) {
+          continue;
+        }
+        throw e;
+      }
+    }
 
-    req.log.info({ policyCatalogId: created.id }, 'policy catalog entry created');
+    req.log.info({ policyCatalogId: created.id, key: created.key }, 'policy catalog entry created');
     res.status(201).json(created);
   } catch (err) {
     next(err);

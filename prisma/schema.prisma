@@ -31,6 +31,9 @@ model OpsUser {
 // Source of truth for insurance plans. The client side caches a read-only copy.
 model PolicyCatalog {
   id             String   @id @default(uuid()) @db.Uuid
+  // Short human-readable code derived from `name` on create (e.g. "PG2").
+  // Unique across the catalog; NOT synced to the client cache.
+  key            String   @unique
   name           String
   description    String?
   premiumAmount  Decimal  @map("premium_amount") @db.Decimal(12, 2)

@@ -20,11 +20,23 @@ function unwrap(body) {
 }
 
 // GET /v1/catalog/policies -> active policy_catalog rows the client side pulls.
+// NOTE: response shape is intentionally frozen for the client cache. The
+// provider-only `key` column is deliberately excluded via an explicit select
+// so it never leaks into the cross-cloud catalog the client caches.
 router.get('/catalog/policies', async (req, res, next) => {
   try {
     const items = await prisma.policyCatalog.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        premiumAmount: true,
+        coverageAmount: true,
+        isActive: true,
+        createdAt: true,
+      },
     });
     res.json(items);
   } catch (err) {
