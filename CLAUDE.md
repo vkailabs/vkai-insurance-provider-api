@@ -64,6 +64,26 @@ for the full domain model and [README.md](README.md) for setup.
   tolerates a flat body). **Preserve this pattern in any new sync route** — read
   `event_id`/`payload` via `unwrap()`, never assume a flat body.
 
+### Policy catalog `key` — generation + deliberate cross-cloud exclusion
+
+- **Generation algorithm (keep in lockstep).** Each policy catalog entry has an
+  auto-generated `key`: split the plan name on whitespace, take the **first character of each
+  token uppercased**, and concatenate (`"Premium Gold 2024"` → `"PG2"`; a numeric token
+  contributes its first digit). Uniqueness is enforced with a **readable dash-numeric suffix
+  starting at 2** on collision (`"PG2"` → `"PG2-2"` → `"PG2-3"` …). The shared helpers live in
+  [src/lib/policyKey.js](src/lib/policyKey.js): `derivePolicyKey` (pure derivation) and
+  `makeUniquePolicyKey` (DB-checked uniqueness). This algorithm is duplicated in the SQL
+  backfill of the `*_add_policy_catalog_key` migration — **any change must update both.**
+- **`key` is DELIBERATELY EXCLUDED from the cross-cloud `GET /v1/catalog/policies`** (the
+  client cache pull) via an explicit Prisma `select` in
+  [src/routes/crossCloud.js](src/routes/crossCloud.js), so it never leaks to the client side.
+  **Anyone changing that route must preserve this exclusion** — do not switch it back to a
+  bare `findMany` or a wildcard select.
+- **`key` DOES appear on the ops-authenticated `GET /v1/policies`** because that route nests
+  the full `policyCatalog` object (`include: { policyCatalog: true }`). This is
+  provider-internal and intentional — **not** a leak, since that route is behind the Entra ID
+  ops JWT.
+
 ### Env vars must be in TWO places
 
 - CORS is configured via `VKAI_INSURANCE_PROVIDER_API_ALLOWED_ORIGIN` and was included in
