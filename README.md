@@ -9,6 +9,13 @@ The provider side (Azure) and the client side (GCP, `vkai-insurance-client-api`)
 independent — **no shared database**. They exchange data only via HTTP sync calls secured by
 a shared secret.
 
+## Documentation
+
+- [BUSINESS_REQUIREMENTS.md](BUSINESS_REQUIREMENTS.md) — domain scope, data ownership, the
+  cross-cloud sync model, and the two endpoint categories.
+- [CLAUDE.md](CLAUDE.md) — project context and critical gotchas for future work (Entra ID
+  audience/token-version, Prisma-on-Alpine, env-var placement, git workflow).
+
 ---
 
 ## Tech stack

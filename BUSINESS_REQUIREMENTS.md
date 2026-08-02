@@ -1,0 +1,120 @@
+# Business Requirements — vkai-insurance-provider-api
+
+## Overview
+
+This is the backend API for the **provider / ops side** of *VK AI Labs Insurance*, a
+personal portfolio project. It is the system of record for the insurance operations team and
+serves the provider frontend (`vkai-insurance-provider`). It runs on **Azure**.
+
+The platform is split across two fully independent clouds that never share a database:
+
+- **Provider side (Azure)** — *this repo* and its frontend. Ops staff (Reviewers/Approvers)
+  manage the plan catalog and work claims here.
+- **Client side (GCP)** — `vkai-insurance-client` + `vkai-insurance-client-api`. Policy
+  holders enroll, pay premiums, and file claims there.
+
+The two sides stay consistent by exchanging **event-enveloped HTTPS sync calls** — there is
+no shared storage, no cross-cloud database link, and no shared runtime. Each side owns its
+own Postgres instance.
+
+## Responsibilities
+
+This API owns the following provider-side concerns:
+
+1. **Ops user authentication** — verifies Entra ID (Azure AD) JWTs on every ops request and
+   upserts an `ops_users` record from the token claims. Group membership maps to an internal
+   role (**Reviewer** or **Approver**).
+2. **Policy catalog** — the **source of truth** for insurance plans. The client side only
+   caches a read-only copy, which it pulls periodically from this API. Plans are created and
+   edited/deactivated here.
+3. **Enrollment processing** — enrollment instances originate on the client side and are
+   mirrored into this API's `policies` table via inbound sync. Ops activates them, which
+   pushes the new status back to the client.
+4. **Premium records** — premium payments are recorded on the client side and pushed here
+   for visibility. They are stored passively; no outbound push back is required.
+5. **Claims workflow** — the full claim lifecycle worked by ops:
+   `Submitted → Under Review → Approved / Rejected → Paid`. Each transition is role-gated and
+   pushes the resulting status back to the client side.
+
+## Data ownership & cross-cloud model
+
+- This API maintains its **own independent Postgres database**, entirely separate from the
+  client side's. No foreign keys cross the cloud boundary — client-side references are
+  stored as opaque values (`client_user_ref`, `client_policy_id`, `client_claim_id`).
+- Synchronization uses the **same event-enveloped pattern documented on the client-api
+  side**. Every sync message is wrapped in a standard envelope:
+
+  ```json
+  {
+    "event_id": "<uuid>",
+    "event_type": "policy.activated",
+    "occurred_at": "<iso-8601>",
+    "source": "provider",
+    "payload": { }
+  }
+  ```
+
+- Reliability is built into every synced table via three fields — `sync_status`
+  (`pending` / `synced` / `failed`), `sync_attempts`, and `event_id`:
+  - **Idempotency** — inbound routes dedupe on `event_id` (or the business key
+    `client_policy_id` / `client_claim_id`), so a retried delivery never creates a duplicate
+    row.
+  - **Retry** — a background job (every 5 minutes) re-pushes outbound rows still in
+    `pending`/`failed` with `sync_attempts < 5`, reusing the stored `event_id` so the far
+    side can dedupe.
+  - **Resilience** — an ops action always succeeds locally even if its outbound sync push
+    fails; the push is simply marked `failed` and retried later.
+
+## Endpoint categories
+
+### 1. Ops-authenticated routes (`Authorization: Bearer <Entra ID JWT>`)
+
+Consumed by the provider frontend. Every request must carry a valid Entra ID token; the auth
+middleware verifies it and attaches the resolved `ops_users` record. Sensitive actions are
+**role-gated** via a `requireRole('Approver')` helper.
+
+| Route | Access | Purpose |
+| ----- | ------ | ------- |
+| `GET /v1/policy-catalog` | any ops user | List plans |
+| `POST /v1/policy-catalog` | **Approver** | Create a plan |
+| `PATCH /v1/policy-catalog/:id` | **Approver** | Edit / deactivate a plan |
+| `GET /v1/policies` | any ops user | List enrollments (`?status=pending` queue) |
+| `POST /v1/policies/:id/activate` | **Approver** | Activate → push status to client |
+| `GET /v1/premiums` | any ops user | View premium records |
+| `GET /v1/claims` | any ops user | List claims (`?status=` filter) |
+| `POST /v1/claims/:id/review` | Reviewer / Approver | → Under Review, push status |
+| `POST /v1/claims/:id/approve` | **Approver** | → Approved, push status |
+| `POST /v1/claims/:id/reject` | **Approver** | → Rejected, push status |
+| `POST /v1/claims/:id/mark-paid` | **Approver** | → Paid (only from Approved), push status |
+| `GET /v1/sync-issues` | any ops user | Rows where `sync_status = failed` |
+
+> A Reviewer touching a claim before an Approver acts is **not** enforced — any Approver may
+> act on a claim regardless of its review history (deliberate scope decision).
+
+### 2. Cross-cloud routes (`X-VKAI-Sync-Key` shared secret)
+
+**Not** protected by the ops JWT. These are the machine-to-machine boundary between the two
+clouds, protected instead by a shared secret header. The client side calls **into** these,
+and this API's own outbound sync calls back **into** the client side's equivalent routes
+using the same key.
+
+| Route | Direction | Purpose |
+| ----- | --------- | ------- |
+| `GET /v1/catalog/policies` | client **pulls** from provider | Active catalog rows to cache |
+| `POST /v1/sync/policies` | client **pushes** to provider | New enrollment → `policies` (pending) |
+| `POST /v1/sync/premiums` | client **pushes** to provider | Premium payment → `premiums` |
+| `POST /v1/sync/claims` | client **pushes** to provider | New claim → `claims` (Submitted) |
+
+Outbound (provider → client), triggered by ops actions:
+
+| Called after | Target on client side |
+| ------------ | --------------------- |
+| Policy activation | `POST /v1/sync/policies/status` |
+| Any claim status change | `POST /v1/sync/claims/status` |
+
+## Non-goals (this phase)
+
+- No Nginx / SSL / Azure deployment automation.
+- No provider frontend code (separate repo, `vkai-insurance-provider`).
+- No creation of the actual Entra ID app registration (manual Azure Portal step).
+- No knowledge of or changes to the GCP client-side repos.
