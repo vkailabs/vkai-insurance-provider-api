@@ -3,7 +3,8 @@
 VK AI Labs — Node.js **provider/ops API** for the Insurance module (policy catalog,
 enrollments, premiums, claims). This is the provider side of the platform and is one of four
 independent repos in the ecosystem. It serves the React provider portal
-(`vkai-insurance-provider`) and, in a later phase, will run on an Azure VM.
+(`vkai-insurance-provider`) and is deployed live on an Azure VM (Docker + Nginx +
+Let's Encrypt SSL).
 
 The provider side (Azure) and the client side (GCP, `vkai-insurance-client-api`) are fully
 independent — **no shared database**. They exchange data only via HTTP sync calls secured by
@@ -211,8 +212,12 @@ echoed back on the response and propagated on outbound sync calls.
 
 ---
 
-## Out of scope for this phase
+## Deployment
 
-- Nginx / SSL / Azure deployment config
+The API is deployed live on an **Azure VM**, running under Docker with **Nginx** as a
+reverse proxy and **Let's Encrypt** for SSL.
+
+## Out of scope for this repo
+
 - The provider frontend (`vkai-insurance-provider`)
 - Creating the actual Entra ID app registration (manual Azure Portal step)
