@@ -1,0 +1,34 @@
+name: Deploy to Production VM
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+            cd /home/vkaiadmin/vkai-insurance-provider-api
+            git pull origin main
+            docker compose down
+            docker compose up --build -d
+            sleep 20
+            for i in 1 2 3 4 5; do
+              if curl -f https://20.80.90.33.nip.io/health; then
+                echo "Health check passed"
+                exit 0
+              fi
+              echo "Attempt $i failed, retrying in 5s..."
+              sleep 5
+            done
+            echo "Health check failed after 5 attempts"
+            exit 1
