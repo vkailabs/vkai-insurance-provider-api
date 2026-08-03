@@ -17,9 +17,18 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
-            cd ~/vkai-insurance-provider-api
+            cd /home/vkaiadmin/vkai-insurance-provider-api
             git pull origin main
             docker compose down
             docker compose up --build -d
-            sleep 5
-            curl -f https://20.80.90.33.nip.io/health
+            sleep 20
+            for i in 1 2 3 4 5; do
+              if curl -f https://20.80.90.33.nip.io/health; then
+                echo "Health check passed"
+                exit 0
+              fi
+              echo "Attempt $i failed, retrying in 5s..."
+              sleep 5
+            done
+            echo "Health check failed after 5 attempts"
+            exit 1
