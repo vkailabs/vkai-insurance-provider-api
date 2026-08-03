@@ -93,6 +93,32 @@ for the full domain model and [README.md](README.md) for setup.
   [.env.example](.env.example) **AND** the `api` service's `environment:` block in
   `docker-compose.yml` — otherwise it will be silently missing inside the container.
 
+### CI/CD deploy pipeline (`.github/workflows/deploy.yml`)
+
+Pushing to **`main`** auto-deploys to the production Azure VM via GitHub Actions
+(`appleboy/ssh-action`). Hard-won gotchas from building this pipeline:
+
+- **Use absolute paths, never `~`.** The deploy script `cd`s to
+  `/home/vkaiadmin/vkai-insurance-provider-api` — **not** `~/vkai-insurance-provider-api`.
+  Tilde does **not** reliably expand in this SSH action's non-interactive shell, so a `~`
+  path silently lands in the wrong place and the deploy fails confusingly.
+- **The health check needs a real wait + retry loop.** Postgres healthcheck + Prisma
+  `migrate deploy` + API startup takes longer than a few seconds, so a single immediate
+  `curl` races the boot and false-fails. The script waits **20s**, then retries the `/health`
+  poll **5 times, 5s apart**, before giving up. Do not collapse this back to one early check.
+- **Required per-repo secrets:** `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`. These are
+  **this repo's own** secrets — **do NOT copy-paste them from the sibling client-api repo's
+  values.** That mix-up happened once during setup (wrong host/key) and caused confusing
+  early failures. Each repo deploys to its own VM with its own key.
+
+## Keep documentation current
+
+- If a change is **significant** — a new field, a new business rule, a new architectural
+  decision, new infrastructure/pipeline, or a newly discovered gotcha — update this repo's
+  own [BUSINESS_REQUIREMENTS.md](BUSINESS_REQUIREMENTS.md) and/or [README.md](README.md) **as
+  part of the same commit**, not as a separate afterthought. Minor or purely cosmetic changes
+  don't need a doc update.
+
 ## Git workflow
 
 - Always work on the **`dev`** branch. **Never commit directly to `main`.**
