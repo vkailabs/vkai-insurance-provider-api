@@ -218,6 +218,20 @@ echoed back on the response and propagated on outbound sync calls.
 The API is deployed live on an **Azure VM**, running under Docker with **Nginx** as a
 reverse proxy and **Let's Encrypt** for SSL.
 
+### Continuous deployment
+
+Pushing to **`main`** triggers automatic deployment to the production Azure VM via GitHub
+Actions ([.github/workflows/deploy.yml](.github/workflows/deploy.yml)). The workflow SSHes
+into the VM and: pulls the latest code, rebuilds the Docker containers
+(`docker compose down` then `docker compose up --build -d`), and verifies the deployment by
+polling the `/health` endpoint (with a wait and retry loop) — failing the run if the service
+doesn't come back healthy. Manual SSH deployment is still possible, but no longer required
+for a normal release.
+
+The workflow relies on three per-repo GitHub Actions secrets — `DEPLOY_HOST`, `DEPLOY_USER`,
+and `DEPLOY_SSH_KEY` — which must be configured in the repo's Actions settings before the
+pipeline can run.
+
 ## Out of scope for this repo
 
 - The provider frontend (`vkai-insurance-provider`)

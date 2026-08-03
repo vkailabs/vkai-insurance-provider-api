@@ -119,9 +119,14 @@ Outbound (provider → client), triggered by ops actions:
 | Policy activation | `POST /v1/sync/policies/status` |
 | Any claim status change | `POST /v1/sync/claims/status` |
 
-## Non-goals (this phase)
+## Infrastructure
 
-- No Nginx / SSL / Azure deployment automation.
+- Deployed live on an **Azure VM** under Docker, fronted by **Nginx** with **Let's Encrypt**
+  SSL. Pushing to `main` auto-deploys via GitHub Actions (pull, rebuild containers, health
+  check). See [README.md](README.md#deployment) for details.
+
+## Non-goals (this repo)
+
 - No provider frontend code (separate repo, `vkai-insurance-provider`).
 - No creation of the actual Entra ID app registration (manual Azure Portal step).
 - No knowledge of or changes to the GCP client-side repos.
