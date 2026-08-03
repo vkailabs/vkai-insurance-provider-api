@@ -33,7 +33,9 @@ This API owns the following provider-side concerns:
      the **first character of each whitespace-separated token, uppercased, and concatenated**
      (e.g. `"Premium Gold 2024"` → `"PG2"`). On collision the key is made unique with a
      dash-numeric suffix (`"-2"`, `"-3"`, …). The key is **non-editable** once created and is
-     displayed as a **prefix to the plan name** wherever the catalog is shown.
+     displayed as a **prefix to the plan name** wherever the catalog is shown. As of
+     **VKAI-002**, `key` is part of the cross-cloud catalog payload the client caches (see
+     `GET /v1/catalog/policies` below); it is no longer provider-only.
 3. **Enrollment processing** — enrollment instances originate on the client side and are
    mirrored into this API's `policies` table via inbound sync. Ops activates them, which
    pushes the new status back to the client.
@@ -107,7 +109,7 @@ using the same key.
 
 | Route | Direction | Purpose |
 | ----- | --------- | ------- |
-| `GET /v1/catalog/policies` | client **pulls** from provider | Active catalog rows to cache |
+| `GET /v1/catalog/policies` | client **pulls** from provider | Active catalog rows to cache (includes `key` as of VKAI-002) |
 | `POST /v1/sync/policies` | client **pushes** to provider | New enrollment → `policies` (pending) |
 | `POST /v1/sync/premiums` | client **pushes** to provider | Premium payment → `premiums` |
 | `POST /v1/sync/claims` | client **pushes** to provider | New claim → `claims` (Submitted) |

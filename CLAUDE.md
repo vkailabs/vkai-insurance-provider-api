@@ -74,11 +74,13 @@ for the full domain model and [README.md](README.md) for setup.
   [src/lib/policyKey.js](src/lib/policyKey.js): `derivePolicyKey` (pure derivation) and
   `makeUniquePolicyKey` (DB-checked uniqueness). This algorithm is duplicated in the SQL
   backfill of the `*_add_policy_catalog_key` migration — **any change must update both.**
-- **`key` is DELIBERATELY EXCLUDED from the cross-cloud `GET /v1/catalog/policies`** (the
-  client cache pull) via an explicit Prisma `select` in
-  [src/routes/crossCloud.js](src/routes/crossCloud.js), so it never leaks to the client side.
-  **Anyone changing that route must preserve this exclusion** — do not switch it back to a
-  bare `findMany` or a wildcard select.
+- **`key` IS included in the cross-cloud `GET /v1/catalog/policies`** (the client cache
+  pull) via the explicit Prisma `select` in
+  [src/routes/crossCloud.js](src/routes/crossCloud.js). **(SUPERSEDED by VKAI-002.)** VKAI-001
+  originally excluded `key` from this route so it would not leak to the client side; VKAI-002
+  reversed that decision and `key` now flows to the client on purpose. **Keep the explicit
+  `select`** — do not switch it back to a bare `findMany` or a wildcard select. The response
+  shape stays intentional; `key` is just one of the selected fields.
 - **`key` DOES appear on the ops-authenticated `GET /v1/policies`** because that route nests
   the full `policyCatalog` object (`include: { policyCatalog: true }`). This is
   provider-internal and intentional — **not** a leak, since that route is behind the Entra ID

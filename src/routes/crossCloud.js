@@ -20,9 +20,10 @@ function unwrap(body) {
 }
 
 // GET /v1/catalog/policies -> active policy_catalog rows the client side pulls.
-// NOTE: response shape is intentionally frozen for the client cache. The
-// provider-only `key` column is deliberately excluded via an explicit select
-// so it never leaks into the cross-cloud catalog the client caches.
+// NOTE: response shape is intentionally frozen for the client cache via an
+// explicit select. As of VKAI-002 the `key` column IS included here on purpose
+// (VKAI-001 had deliberately excluded it; that decision is now reversed) so the
+// client caches the plan key alongside the rest of the catalog row.
 router.get('/catalog/policies', async (req, res, next) => {
   try {
     const items = await prisma.policyCatalog.findMany({
@@ -30,6 +31,7 @@ router.get('/catalog/policies', async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
+        key: true,
         name: true,
         description: true,
         premiumAmount: true,
