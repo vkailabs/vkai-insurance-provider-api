@@ -44,6 +44,15 @@ This API owns the following provider-side concerns:
    pushes the new status back to the client.
 4. **Premium records** — premium payments are recorded on the client side and pushed here
    for visibility. They are stored passively; no outbound push back is required.
+
+   - **`policyName` enrichment (VKAI-004).** `GET /v1/premiums` returns each premium enriched
+     with a `policyName` field (string, or `null`), resolved **entirely from provider-local
+     data** via the relational join `premium -> policy -> policyCatalog` (the catalog `name`).
+     No cross-cloud call is made — the provider owns the catalog as source of truth. When the
+     name can't be resolved (no linked policy, or no matching catalog row) `policyName` is
+     `null` and the frontend renders the literal "Unknown plan". A deactivated-but-present plan
+     (`isActive=false`) still has a catalog row and resolves to its real name normally — that is
+     not a fallback case. This is read-only enrichment: no schema, sync-payload, or auth change.
 5. **Claims workflow** — the full claim lifecycle worked by ops:
    `Submitted → Under Review → Approved / Rejected → Paid`. Each transition is role-gated and
    pushes the resulting status back to the client side.
@@ -92,7 +101,7 @@ middleware verifies it and attaches the resolved `ops_users` record. Sensitive a
 | `PATCH /v1/policy-catalog/:id` | **Approver** | Edit / deactivate a plan |
 | `GET /v1/policies` | any ops user | List enrollments (`?status=pending` queue) |
 | `POST /v1/policies/:id/activate` | **Approver** | Activate → push status to client |
-| `GET /v1/premiums` | any ops user | View premium records |
+| `GET /v1/premiums` | any ops user | View premium records (each row enriched with `policyName`, see note below) |
 | `GET /v1/claims` | any ops user | List claims (`?status=` filter) |
 | `POST /v1/claims/:id/review` | Reviewer / Approver | → Under Review, push status |
 | `POST /v1/claims/:id/approve` | **Approver** | → Approved, push status |
