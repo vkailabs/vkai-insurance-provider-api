@@ -64,6 +64,25 @@ for the full domain model and [README.md](README.md) for setup.
   tolerates a flat body). **Preserve this pattern in any new sync route** — read
   `event_id`/`payload` via `unwrap()`, never assume a flat body.
 
+### Outbound catalog push (VKAI-003)
+
+- The **policy catalog is the source of truth** and was originally not an outbound-synced
+  table. VKAI-003 added the reliability trio (`sync_status` / `sync_attempts` / `event_id`,
+  see the `*_add_policy_catalog_sync` migration) to `policy_catalog` and pushes every
+  create/edit to the client's `POST /v1/sync/catalog`. Reuse this same mechanism for any
+  future catalog-affecting sync — **don't** invent a parallel outbox.
+- **Migration backfills existing rows to `sync_status = 'synced'`** on purpose: they predate
+  push-sync and are already in the client cache via the pull, so this stops the 5-min retry
+  sweep from re-pushing the entire pre-existing catalog on first deploy.
+- **The catalog push payload is camelCase**, unlike the other outbound payloads
+  (`client_claim_id` etc. are snake_case). This is deliberate: the catalog payload mirrors the
+  `GET /v1/catalog/policies` pull response one-for-one, because the client feeds the SAME
+  cached-catalog copy from both the pull and the push. The envelope itself stays snake_case.
+  The shared shape lives in [src/lib/catalogSync.js](src/lib/catalogSync.js) so the route push
+  and the cron retry can't drift. Client dedupes/upserts on `payload.id` (provider catalog UUID).
+- **Event type is `catalog.upserted`** (single event covers create, edit, and deactivate) so
+  the client handler is a plain upsert with no branching; a deactivate is just `isActive:false`.
+
 ### Policy catalog `key` — generation + deliberate cross-cloud exclusion
 
 - **Generation algorithm (keep in lockstep).** Each policy catalog entry has an

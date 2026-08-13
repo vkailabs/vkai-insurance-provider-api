@@ -5,11 +5,40 @@ const prisma = require('../lib/prisma');
 const entraAuth = require('../middleware/entraAuth');
 const requireRole = require('../middleware/requireRole');
 const { makeUniquePolicyKey } = require('../lib/policyKey');
+const { syncToClient } = require('../services/clientSync');
+const {
+  CATALOG_SYNC_PATH,
+  CATALOG_EVENT_TYPE,
+  buildCatalogSyncPayload,
+} = require('../lib/catalogSync');
 
 const router = express.Router();
 
 // All catalog routes require an authenticated ops user.
 router.use(entraAuth);
+
+// Pushes a catalog row (create or edit/deactivate) to the client cache and
+// records the outcome on the row. Never throws — the ops write has already been
+// persisted, so a push failure only marks the row 'failed' for the retry sweep.
+async function pushCatalogUpsert(req, entry) {
+  const result = await syncToClient(
+    CATALOG_SYNC_PATH,
+    buildCatalogSyncPayload(entry),
+    {
+      eventType: CATALOG_EVENT_TYPE,
+      correlationId: req.correlationId,
+    },
+  );
+
+  return prisma.policyCatalog.update({
+    where: { id: entry.id },
+    data: {
+      eventId: result.eventId,
+      syncStatus: result.ok ? 'synced' : 'failed',
+      syncAttempts: result.ok ? entry.syncAttempts : entry.syncAttempts + 1,
+    },
+  });
+}
 
 // GET /v1/policy-catalog -> list all catalog entries
 router.get('/', async (req, res, next) => {
@@ -61,7 +90,10 @@ router.post('/', requireRole('Approver'), async (req, res, next) => {
     }
 
     req.log.info({ policyCatalogId: created.id, key: created.key }, 'policy catalog entry created');
-    res.status(201).json(created);
+
+    // Push the new plan to the client cache immediately (fallback: client pull).
+    const synced = await pushCatalogUpsert(req, created);
+    res.status(201).json(synced);
   } catch (err) {
     next(err);
   }
@@ -89,7 +121,11 @@ router.patch('/:id', requireRole('Approver'), async (req, res, next) => {
     });
 
     req.log.info({ policyCatalogId: updated.id }, 'policy catalog entry updated');
-    res.json(updated);
+
+    // Push the edit/deactivation to the client cache immediately (a deactivate,
+    // isActive=false, is pushed too so the client can reflect it).
+    const synced = await pushCatalogUpsert(req, updated);
+    res.json(synced);
   } catch (err) {
     if (err.code === 'P2025') {
       return res.status(404).json({ error: 'Policy catalog entry not found' });
