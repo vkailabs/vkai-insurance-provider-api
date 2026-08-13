@@ -25,8 +25,11 @@ This API owns the following provider-side concerns:
    upserts an `ops_users` record from the token claims. Group membership maps to an internal
    role (**Reviewer** or **Approver**).
 2. **Policy catalog** — the **source of truth** for insurance plans. The client side only
-   caches a read-only copy, which it pulls periodically from this API. Plans are created and
-   edited/deactivated here.
+   caches a read-only copy. It **pulls** that copy periodically from this API
+   (`GET /v1/catalog/policies`) **and** — as of **VKAI-003** — receives an immediate
+   **push** whenever a plan is created or edited/deactivated here, so its cache reflects with
+   no wait. The pull remains the fallback; the push is best-effort with retry (see the
+   outbound sync table below). Plans are created and edited/deactivated here.
 
    - **Auto-generated, locked plan key.** Every policy catalog entry carries a short `key`,
      generated **server-side on plan creation**. It is derived from the plan name by taking
@@ -116,10 +119,20 @@ using the same key.
 
 Outbound (provider → client), triggered by ops actions:
 
-| Called after | Target on client side |
-| ------------ | --------------------- |
-| Policy activation | `POST /v1/sync/policies/status` |
-| Any claim status change | `POST /v1/sync/claims/status` |
+| Called after | Target on client side | Event type |
+| ------------ | --------------------- | ---------- |
+| Policy activation | `POST /v1/sync/policies/status` | `policy.activated` |
+| Any claim status change | `POST /v1/sync/claims/status` | `claim.<status>` |
+| Catalog create or edit/deactivate | `POST /v1/sync/catalog` | `catalog.upserted` |
+
+The **catalog push** (VKAI-003) uses the same reliability trio as the other outbound rows:
+`sync_status` / `sync_attempts` / `event_id` now live on `policy_catalog` too, the 5-minute
+retry job re-pushes any catalog row not confirmed `synced`, and the ops create/edit always
+succeeds locally even if the push fails. The payload is the full catalog row the client
+upserts into its cache — camelCase, mirroring the `GET /v1/catalog/policies` pull shape:
+`{ id, key, name, description, premiumAmount, coverageAmount, isActive, createdAt }`. The
+client **dedupes/upserts on `payload.id`** (the provider catalog UUID). A deactivation is
+pushed as a normal `catalog.upserted` with `isActive: false`.
 
 ## Infrastructure
 

@@ -4,6 +4,11 @@ const cron = require('node-cron');
 const prisma = require('../lib/prisma');
 const logger = require('../lib/logger');
 const { syncToClient } = require('../services/clientSync');
+const {
+  CATALOG_SYNC_PATH,
+  CATALOG_EVENT_TYPE,
+  buildCatalogSyncPayload,
+} = require('../lib/catalogSync');
 
 const MAX_ATTEMPTS = 5;
 
@@ -70,15 +75,48 @@ async function retryClaims(log) {
   return claims.length;
 }
 
+async function retryCatalog(log) {
+  // Any catalog row whose last push isn't confirmed synced. Unlike policies/claims
+  // there's no status gate: every created/edited plan is meant to reach the client
+  // cache. Pre-existing rows were backfilled to 'synced' by the VKAI-003 migration
+  // so this sweep only picks up genuine create/edit pushes that haven't landed.
+  const rows = await prisma.policyCatalog.findMany({
+    where: {
+      syncStatus: { in: ['pending', 'failed'] },
+      syncAttempts: { lt: MAX_ATTEMPTS },
+    },
+  });
+
+  for (const row of rows) {
+    const result = await syncToClient(
+      CATALOG_SYNC_PATH,
+      buildCatalogSyncPayload(row),
+      { eventType: CATALOG_EVENT_TYPE, eventId: row.eventId || undefined },
+    );
+
+    await prisma.policyCatalog.update({
+      where: { id: row.id },
+      data: {
+        eventId: result.eventId,
+        syncStatus: result.ok ? 'synced' : 'failed',
+        syncAttempts: row.syncAttempts + 1,
+      },
+    });
+    log.info({ policyCatalogId: row.id, ok: result.ok }, 'retry: catalog upsert push');
+  }
+  return rows.length;
+}
+
 async function runOnce() {
   const log = logger.child({ job: 'retrySync' });
   try {
-    const [policyCount, claimCount] = await Promise.all([
+    const [policyCount, claimCount, catalogCount] = await Promise.all([
       retryPolicies(log),
       retryClaims(log),
+      retryCatalog(log),
     ]);
-    if (policyCount || claimCount) {
-      log.info({ policyCount, claimCount }, 'retry sweep complete');
+    if (policyCount || claimCount || catalogCount) {
+      log.info({ policyCount, claimCount, catalogCount }, 'retry sweep complete');
     }
   } catch (err) {
     log.error({ err: err.message }, 'retry sweep failed');
