@@ -36,6 +36,14 @@ async function pushClaimStatus(req, claim, eventType) {
 }
 
 // GET /v1/claims -> list claims; ?status=<value> filter
+//
+// Response is enriched with `policyName`, resolved entirely from provider-local
+// data via the relational join claim -> policy -> policyCatalog (no cross-cloud
+// call), mirroring the VKAI-004 enrichment on GET /v1/premiums. When a claim's
+// policy or its catalog row can't be resolved, `policyName` is `null` (the
+// frontend renders "Unknown plan"). A deactivated-but-present plan (isActive=false)
+// still has a catalog row and resolves to its real name normally. Resolved
+// per-request (not a stored column) so new claims automatically get a Policy Name.
 router.get('/', async (req, res, next) => {
   try {
     const { status } = req.query;
@@ -44,9 +52,17 @@ router.get('/', async (req, res, next) => {
     const claims = await prisma.claim.findMany({
       where,
       orderBy: { submittedAt: 'desc' },
-      include: { policy: true, reviewedBy: true, approvedBy: true },
+      include: {
+        policy: { include: { policyCatalog: true } },
+        reviewedBy: true,
+        approvedBy: true,
+      },
     });
-    res.json(claims);
+    const enriched = claims.map((claim) => ({
+      ...claim,
+      policyName: claim.policy?.policyCatalog?.name ?? null,
+    }));
+    res.json(enriched);
   } catch (err) {
     next(err);
   }
