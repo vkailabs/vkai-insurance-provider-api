@@ -57,6 +57,18 @@ This API owns the following provider-side concerns:
    `Submitted → Under Review → Approved / Rejected → Paid`. Each transition is role-gated and
    pushes the resulting status back to the client side.
 
+   - **`policyName` enrichment (VKAI-007).** `GET /v1/claims` returns each claim enriched with
+     a `policyName` field (string, or `null`), resolved **entirely from provider-local data**
+     via the relational join `claim -> policy -> policyCatalog` (the catalog `name`) — the same
+     approach as the VKAI-004 premiums enrichment. No cross-cloud call is made — the provider
+     owns the catalog as source of truth. When the name can't be resolved (no linked policy, or
+     no matching catalog row) `policyName` is `null` and the frontend renders the literal
+     "Unknown plan". A deactivated-but-present plan (`isActive=false`) still has a catalog row
+     and resolves to its real name normally — that is not a fallback case. It is resolved
+     per-request (not a stored/persisted column), so **new claims automatically get a Policy
+     Name** with no backfill. This is read-only enrichment: no schema, sync-payload, or auth
+     change, and the claims workflow endpoints are untouched.
+
 ## Data ownership & cross-cloud model
 
 - This API maintains its **own independent Postgres database**, entirely separate from the
@@ -102,7 +114,7 @@ middleware verifies it and attaches the resolved `ops_users` record. Sensitive a
 | `GET /v1/policies` | any ops user | List enrollments (`?status=pending` queue) |
 | `POST /v1/policies/:id/activate` | **Approver** | Activate → push status to client |
 | `GET /v1/premiums` | any ops user | View premium records (each row enriched with `policyName`, see note below) |
-| `GET /v1/claims` | any ops user | List claims (`?status=` filter) |
+| `GET /v1/claims` | any ops user | List claims (`?status=` filter; each row enriched with `policyName`, see note below) |
 | `POST /v1/claims/:id/review` | Reviewer / Approver | → Under Review, push status |
 | `POST /v1/claims/:id/approve` | **Approver** | → Approved, push status |
 | `POST /v1/claims/:id/reject` | **Approver** | → Rejected, push status |
