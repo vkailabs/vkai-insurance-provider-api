@@ -42,6 +42,18 @@ This API owns the following provider-side concerns:
 3. **Enrollment processing** — enrollment instances originate on the client side and are
    mirrored into this API's `policies` table via inbound sync. Ops activates them, which
    pushes the new status back to the client.
+
+   - **Provider Policy status values** are `pending | active | expired | cancelled`
+     (free-string, no enum — adding a value needs no migration).
+   - **Customer-initiated cancellation (VKAI-010 / VJS-49).** A customer may cancel a
+     still-**pending** policy on the client portal before it is approved. This is the **first
+     client → provider status push** (previously status changes only flowed provider → client
+     on activation). The client emits `policy.cancelled` to the inbound
+     `POST /v1/sync/policies/status` route (see cross-cloud table below); this API matches the
+     policy by `client_policy_id` and sets its status to `cancelled`. This is an **authoritative
+     inbound change** — it is **not** echoed back out to the client (that would loop). Once a
+     policy is `cancelled`, **ops can no longer activate it**: `POST /v1/policies/:id/activate`
+     refuses any non-`pending` policy with a **409** and performs no state change or push.
 4. **Premium records** — premium payments are recorded on the client side and pushed here
    for visibility. They are stored passively; no outbound push back is required.
 
@@ -128,7 +140,7 @@ middleware verifies it and attaches the resolved `ops_users` record. Sensitive a
 | `POST /v1/policy-catalog` | **Approver** | Create a plan |
 | `PATCH /v1/policy-catalog/:id` | **Approver** | Edit / deactivate a plan |
 | `GET /v1/policies` | any ops user | List enrollments (`?status=pending` queue) |
-| `POST /v1/policies/:id/activate` | **Approver** | Activate → push status to client |
+| `POST /v1/policies/:id/activate` | **Approver** | Activate → push status to client (409 if the policy is not `pending`, e.g. `cancelled`, VKAI-010) |
 | `GET /v1/premiums` | any ops user | View premium records (each row enriched with `policyName` and `enrolmentDate`, see notes below) |
 | `GET /v1/claims` | any ops user | List claims (`?status=` filter; each row enriched with `policyName`, see note below) |
 | `POST /v1/claims/:id/review` | Reviewer / Approver | → Under Review, push status |
@@ -153,6 +165,7 @@ using the same key.
 | `POST /v1/sync/policies` | client **pushes** to provider | New enrollment → `policies` (pending) |
 | `POST /v1/sync/premiums` | client **pushes** to provider | Premium payment → `premiums` (accepts optional `enrolled_at` → `enrolment_date`, VKAI-009) |
 | `POST /v1/sync/claims` | client **pushes** to provider | New claim → `claims` (Submitted) |
+| `POST /v1/sync/policies/status` | client **pushes** to provider | Customer-initiated policy status change → `policies` (VKAI-010). Only `policy.cancelled` is accepted today: matched by `client_policy_id`, sets status to `cancelled`; idempotent on already-`cancelled`; not echoed back |
 
 Outbound (provider → client), triggered by ops actions:
 
