@@ -53,6 +53,22 @@ This API owns the following provider-side concerns:
      `null` and the frontend renders the literal "Unknown plan". A deactivated-but-present plan
      (`isActive=false`) still has a catalog row and resolves to its real name normally — that is
      not a fallback case. This is read-only enrichment: no schema, sync-payload, or auth change.
+
+   - **Stored `enrolment_date` on premiums (VKAI-009 / VJS-48).** Premiums now carry a **stored**
+     `enrolment_date` column (Prisma `enrolmentDate DateTime?`, nullable). It is **sourced from
+     the client premium-sync payload**: `POST /v1/sync/premiums` accepts a new **optional**
+     snake_case field `enrolled_at` and persists it into `enrolment_date`. The handler stays
+     idempotent on `event_id` and **tolerant of `enrolled_at` being absent** — a premium synced
+     before the client change still succeeds: when `enrolled_at` is missing it falls back to the
+     linked policy's `enrolledAt` (mirrored on the `policies` table), else `null` (never throws).
+     `GET /v1/premiums` returns a new `enrolmentDate` field (ISO date string, or `null`):
+     it prefers the stored `premium.enrolmentDate`, falls back to `premium.policy.enrolledAt`,
+     else `null` — the same provider-local pattern as the VKAI-004 `policyName` enrichment
+     (which is unchanged). A **one-time backfill** in the migration set `enrolment_date` for all
+     existing premiums from `policies.enrolled_at` via the `policy_id` join ("apply to all
+     existing records"); the backfill only touches rows still `NULL`, so it is safe to re-run.
+     Contract field names (client-api and provider-UI depend on these exactly): inbound payload
+     `enrolled_at`, stored column `enrolment_date`, response field `enrolmentDate`.
 5. **Claims workflow** — the full claim lifecycle worked by ops:
    `Submitted → Under Review → Approved / Rejected → Paid`. Each transition is role-gated and
    pushes the resulting status back to the client side.
@@ -113,7 +129,7 @@ middleware verifies it and attaches the resolved `ops_users` record. Sensitive a
 | `PATCH /v1/policy-catalog/:id` | **Approver** | Edit / deactivate a plan |
 | `GET /v1/policies` | any ops user | List enrollments (`?status=pending` queue) |
 | `POST /v1/policies/:id/activate` | **Approver** | Activate → push status to client |
-| `GET /v1/premiums` | any ops user | View premium records (each row enriched with `policyName`, see note below) |
+| `GET /v1/premiums` | any ops user | View premium records (each row enriched with `policyName` and `enrolmentDate`, see notes below) |
 | `GET /v1/claims` | any ops user | List claims (`?status=` filter; each row enriched with `policyName`, see note below) |
 | `POST /v1/claims/:id/review` | Reviewer / Approver | → Under Review, push status |
 | `POST /v1/claims/:id/approve` | **Approver** | → Approved, push status |
@@ -135,7 +151,7 @@ using the same key.
 | ----- | --------- | ------- |
 | `GET /v1/catalog/policies` | client **pulls** from provider | Active catalog rows to cache (includes `key` as of VKAI-002) |
 | `POST /v1/sync/policies` | client **pushes** to provider | New enrollment → `policies` (pending) |
-| `POST /v1/sync/premiums` | client **pushes** to provider | Premium payment → `premiums` |
+| `POST /v1/sync/premiums` | client **pushes** to provider | Premium payment → `premiums` (accepts optional `enrolled_at` → `enrolment_date`, VKAI-009) |
 | `POST /v1/sync/claims` | client **pushes** to provider | New claim → `claims` (Submitted) |
 
 Outbound (provider → client), triggered by ops actions:

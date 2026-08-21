@@ -100,7 +100,10 @@ router.post('/sync/policies', async (req, res, next) => {
 router.post('/sync/premiums', async (req, res, next) => {
   try {
     const { eventId, payload } = unwrap(req.body);
-    const { client_policy_id, amount, paid_at } = payload;
+    // `enrolled_at` (VKAI-009) is OPTIONAL: premiums synced before the client
+    // change won't carry it. When absent we fall back to the linked policy's
+    // enrolledAt below, else null — never throw on its absence.
+    const { client_policy_id, amount, paid_at, enrolled_at } = payload;
 
     if (!client_policy_id || amount == null) {
       return res.status(400).json({ error: 'client_policy_id and amount are required' });
@@ -127,6 +130,9 @@ router.post('/sync/premiums', async (req, res, next) => {
         policyId: policy.id,
         amount,
         paidAt: paid_at ? new Date(paid_at) : new Date(),
+        // VKAI-009: store the enrolment date. Prefer the payload's enrolled_at;
+        // if absent, fall back to the linked policy's enrolledAt; else null.
+        enrolmentDate: enrolled_at ? new Date(enrolled_at) : policy.enrolledAt ?? null,
         syncStatus: 'synced', // premiums are recorded passively, no outbound push
         eventId: eventId || undefined,
       },
