@@ -145,6 +145,54 @@ router.post('/sync/premiums', async (req, res, next) => {
   }
 });
 
+// POST /v1/sync/policies/status -> inbound, client-initiated policy status change.
+// VKAI-010: the FIRST client -> provider status push. Today the only status this
+// route handles is `cancelled` (a customer cancelling a still-pending policy before
+// approval). This is an authoritative change FROM the client; we do NOT push it back
+// out (that would loop). Matched by client_policy_id against the stored clientPolicyId.
+router.post('/sync/policies/status', async (req, res, next) => {
+  try {
+    const { payload } = unwrap(req.body);
+    const { client_policy_id, status } = payload;
+
+    if (!client_policy_id || !status) {
+      return res
+        .status(400)
+        .json({ error: 'client_policy_id and status are required' });
+    }
+
+    // Keep tight to this story's contract: only `cancelled` is supported for now.
+    if (status !== 'cancelled') {
+      return res
+        .status(400)
+        .json({ error: `unsupported status '${status}' (only 'cancelled' is accepted)` });
+    }
+
+    const policy = await prisma.policy.findUnique({
+      where: { clientPolicyId: client_policy_id },
+    });
+    if (!policy) {
+      return res.status(404).json({ error: 'No policy for given client_policy_id' });
+    }
+
+    // Idempotent: a retried cancellation for an already-cancelled policy is a no-op.
+    if (policy.status === 'cancelled') {
+      req.log.info({ policyId: policy.id }, 'sync/policies/status: duplicate ignored');
+      return res.status(200).json({ status: 'duplicate', policy });
+    }
+
+    const updated = await prisma.policy.update({
+      where: { id: policy.id },
+      data: { status: 'cancelled' },
+    });
+
+    req.log.info({ policyId: updated.id }, 'sync/policies/status: policy cancelled');
+    res.status(200).json({ status: 'cancelled', policy: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // POST /v1/sync/claims -> inbound claim. Idempotent on client_claim_id.
 router.post('/sync/claims', async (req, res, next) => {
   try {

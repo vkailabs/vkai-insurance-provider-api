@@ -36,6 +36,16 @@ router.post('/:id/activate', requireRole('Approver'), async (req, res, next) => 
       return res.status(404).json({ error: 'Policy not found' });
     }
 
+    // VKAI-010: only a still-pending policy may be activated. A client-initiated
+    // cancellation (status = 'cancelled'), or an already-active/expired policy, must
+    // NOT be activated or pushed. This enforces "the Approver can no longer approve a
+    // cancelled policy" server-side, not just because the UI hid it.
+    if (policy.status !== 'pending') {
+      return res.status(409).json({
+        error: `Cannot activate a policy with status '${policy.status}'; only pending policies can be activated`,
+      });
+    }
+
     // Perform the local state change first so the ops action succeeds regardless
     // of the outbound sync outcome.
     const updated = await prisma.policy.update({

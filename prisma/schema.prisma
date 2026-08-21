@@ -58,7 +58,11 @@ model Policy {
   policyCatalogId String   @map("policy_catalog_id") @db.Uuid
   clientPolicyId  String   @unique @map("client_policy_id") @db.Uuid
   clientUserRef   String   @map("client_user_ref")
-  status          String   @default("pending") // pending | active | expired
+  status          String   @default("pending") // pending | active | expired | cancelled
+  // `cancelled` (VKAI-010): set by an inbound client-initiated cancellation of a
+  // still-pending policy (POST /v1/sync/policies/status). Free-string, no enum, so
+  // adding the value needs no migration. A cancelled policy can no longer be
+  // activated by ops (see POST /v1/policies/:id/activate guard).
   enrolledAt      DateTime @map("enrolled_at")
   expiryDate      DateTime @map("expiry_date") @db.Date
   syncStatus      String   @default("pending") @map("sync_status") // pending | synced | failed

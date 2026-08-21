@@ -64,6 +64,29 @@ for the full domain model and [README.md](README.md) for setup.
   tolerates a flat body). **Preserve this pattern in any new sync route** — read
   `event_id`/`payload` via `unwrap()`, never assume a flat body.
 
+### Inbound client → provider status push (VKAI-010)
+
+- **`POST /v1/sync/policies/status`** is the **first client → provider status push** — all prior
+  status flow was provider → client (activation). The client emits `policy.cancelled` when a
+  customer cancels a still-pending policy; this route matches the policy by
+  **`payload.client_policy_id`** (against the stored `clientPolicyId`) and sets `status =
+  'cancelled'`. It is **idempotent** (already-`cancelled` → 200 `{ status: 'duplicate' }`),
+  404s on an unknown `client_policy_id`, 400s on missing `client_policy_id`/`status`, and
+  400s on any `status` other than `cancelled` (kept deliberately tight to the current
+  contract — extend explicitly, don't blindly apply arbitrary statuses). **It is an inbound
+  AUTHORITATIVE change — never echo it back out** to the client (that would loop).
+- **Note the symmetric path name:** the provider's *outbound* activation push targets the
+  client's `POST /v1/sync/policies/status`; this new route is the provider's *own* inbound
+  same-named endpoint on a different host. Same path, opposite direction, different server —
+  not a conflict.
+- **Activation guard.** `POST /v1/policies/:id/activate` now **409s** on any policy whose
+  `status !== 'pending'` (e.g. a `cancelled` one) and performs no state change or outbound
+  push. This makes "a cancelled policy can no longer be approved" true server-side, not just
+  because the UI hid it. The Approver role-gate and the happy-path activation of genuinely
+  pending policies are unchanged.
+- **`cancelled` is a new free-string `Policy.status` value** (`pending | active | expired |
+  cancelled`). No enum, so no migration — just the value + schema comment/doc.
+
 ### Outbound catalog push (VKAI-003)
 
 - The **policy catalog is the source of truth** and was originally not an outbound-synced
